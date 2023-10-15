@@ -1,20 +1,21 @@
 package com.alibi.todoreminderapi.api.controllers;
 
+import com.alibi.todoreminderapi.api.controllers.helper.ControllerHelper;
+import com.alibi.todoreminderapi.api.dtos.AckDto;
 import com.alibi.todoreminderapi.api.dtos.TaskDto;
 import com.alibi.todoreminderapi.api.exceptions.BadRequestException;
 import com.alibi.todoreminderapi.api.factories.TaskDtoFactory;
 import com.alibi.todoreminderapi.store.entities.TaskEntity;
+import com.alibi.todoreminderapi.store.entities.TaskStateEntity;
 import com.alibi.todoreminderapi.store.repositories.TaskRepository;
 import jakarta.transaction.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -24,35 +25,30 @@ import java.util.stream.Stream;
 @Transactional
 @RestController
 public class TaskController {
-         //TODO
+
     TaskRepository taskRepository;
+
+    ControllerHelper controllerHelper;
 
     TaskDtoFactory taskDtoFactory;
 
-    public static final String FETCH_TASK = "/api/tasks";
+    public static final String GET_TASKS = "/api/tasks";
     public static final String CREATE_TASK = "/api/task";
     public static final String UPDATE_TASK = "/api/task";
     public static final String DELETE_TASK = "/api/tasks/{task_id}";
 
-    @GetMapping(FETCH_TASK)
-    public List<TaskDto> fetchTasks(
-            @RequestParam(value = "title_prefix", required = false) Optional<String> optionalTitlePrefix) {
+    @GetMapping(GET_TASKS)
+    public List<TaskDto> getTasks(
+            @PathVariable(value = "task_state_id") Long taskStateId) {
 
-        optionalTitlePrefix = optionalTitlePrefix.filter(titlePrefix -> !titlePrefix.trim().isEmpty());
+        TaskStateEntity taskState = controllerHelper.getTaskStateOrThrowException(taskStateId);
 
-        Stream<TaskEntity> taskStream = optionalTitlePrefix
-                .map(taskRepository::streamAllByTitleStartsWithIgnoreCase)
-                .orElseGet(taskRepository::streamAllBy);
-
-        if (optionalTitlePrefix.isPresent()) {
-            taskStream = taskRepository.streamAllByTitleStartsWithIgnoreCase(optionalTitlePrefix.get());
-        } else {
-            taskStream = taskRepository.streamAllBy();
-        }
-
-        return taskStream
+        return taskState
+                .getTasks()
+                .stream()
                 .map(taskDtoFactory::makeTaskDto)
                 .collect(Collectors.toList());
+
     }
 
     @PostMapping(CREATE_TASK)
@@ -74,5 +70,45 @@ public class TaskController {
 
         return taskDtoFactory.makeTaskDto(savedTask);
     }
+    
+    @PutMapping(UPDATE_TASK)
+    public TaskDto updateTask(
+            @RequestParam(value = "task_id") Long taskId,
+            @RequestParam(value = "task_name", required = false) Optional<String> optionalTaskName) {
 
+        optionalTaskName = optionalTaskName.filter(name -> !name.trim().isEmpty());
+
+        if (optionalTaskName.isEmpty()) {
+            throw new BadRequestException("Task name can't be empty");
+        }
+
+        TaskEntity task = controllerHelper.getTaskOrThrowException(taskId);
+
+        optionalTaskName.ifPresent(taskName -> {
+            taskRepository
+                    .findByTitle(taskName)
+                    .filter(anotherTask -> !Objects.equals(anotherTask.getId(), task.getId()))
+                    .ifPresent(anotherTask -> {
+                        throw new BadRequestException(
+                                String.format("Task \"%s\" task already exists.", taskName)
+                        );
+                    });
+
+            task.setTitle(taskName);
+        });
+
+        TaskEntity savedTask = taskRepository.saveAndFlush(task);
+
+        return taskDtoFactory.makeTaskDto(savedTask);
+    }
+
+    @DeleteMapping(DELETE_TASK)
+    public AckDto deleteTask(@PathVariable(value = "task_id") Long taskId) {
+
+        controllerHelper.getTaskOrThrowException(taskId);
+
+        taskRepository.deleteById(taskId);
+
+        return AckDto.makeDefault(true);
+    }
 }
