@@ -5,6 +5,8 @@ import com.alibi.todoreminderapi.api.dtos.AckDto;
 import com.alibi.todoreminderapi.api.dtos.TaskDto;
 import com.alibi.todoreminderapi.api.exceptions.BadRequestException;
 import com.alibi.todoreminderapi.api.factories.TaskDtoFactory;
+import com.alibi.todoreminderapi.api.service.NotificationService;
+import com.alibi.todoreminderapi.api.service.UserService;
 import com.alibi.todoreminderapi.store.entities.TaskEntity;
 import com.alibi.todoreminderapi.store.entities.TaskStateEntity;
 import com.alibi.todoreminderapi.store.repositories.TaskRepository;
@@ -12,19 +14,24 @@ import jakarta.transaction.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Transactional
 @RestController
 public class TaskController {
+
+    @Value("${firebase.tokens}")
+    private List<String> firebaseTokens;
+
+    NotificationService notificationService;
 
     TaskRepository taskRepository;
 
@@ -67,6 +74,11 @@ public class TaskController {
         TaskEntity task = TaskEntity.builder().title(taskTitle).build();
 
         TaskEntity savedTask = taskRepository.saveAndFlush(task);
+
+
+        for (String token : firebaseTokens) {
+            notificationService.sendNotification(token, "Task reminder", "You have new task: " + savedTask.getTitle());
+        }
 
         return taskDtoFactory.makeTaskDto(savedTask);
     }

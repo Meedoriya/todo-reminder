@@ -27,6 +27,9 @@ public class TaskEntity {
 
     LocalDateTime dueDate;
 
+    @ManyToOne
+    User user;
+
     LocalDateTime reminderTime;
 
     String firebaseToken;
